@@ -1,0 +1,8 @@
+{
+  "tasks": {
+    "airdrop": "deno run --allow-net --env-file --allow-env --allow-read --allow-write airdrop.ts"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1"
+  }
+}
