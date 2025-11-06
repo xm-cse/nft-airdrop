@@ -10,6 +10,8 @@ if (!COLLECTION_ID) {
   throw new Error("COLLECTION_ID is not set");
 }
 
+const CHAIN = Deno.env.get("CHAIN") ?? "curtis";
+
 const CROSSMINT_BASE_URL = CROSSMINT_SERVER_API_KEY.includes("staging")
   ? "https://staging.crossmint.com/api/2022-06-09/"
   : "https://www.crossmint.com/api/2022-06-09/";
@@ -52,31 +54,96 @@ export type AirdropItem = {
   id: string; // unique NFT id for idempotency
 };
 
-export const readAirdropData = async (): Promise<AirdropItem[]> => {
-  const filePath = "airdrop.json";
-  try {
-    const fileContent = await Deno.readTextFile("airdrop.json");
-    const data = JSON.parse(fileContent) as AirdropItem[];
+type MetadataEntry = {
+  id: string;
+  metadata: NFTMetadata;
+};
 
-    if (!Array.isArray(data)) {
-      throw new Error("JSON file must contain an array");
+type AirdropEntry = {
+  walletAddress: string;
+  nftId: string;
+  referenceId?: string; // optional since it's not used in processing
+};
+
+export const readAirdropData = async (): Promise<AirdropItem[]> => {
+  try {
+    // read metadata.json and create a map by NFT ID
+    console.log("Reading metadata.json...");
+    const metadataContent = await Deno.readTextFile("metadata.json");
+    const metadataEntries = JSON.parse(metadataContent) as MetadataEntry[];
+
+    if (!Array.isArray(metadataEntries)) {
+      throw new Error("metadata.json must contain an array");
     }
 
-    return data;
+    // create a map of nftId -> metadata
+    const metadataMap = new Map<string, NFTMetadata>();
+    for (const entry of metadataEntries) {
+      metadataMap.set(entry.id, entry.metadata);
+    }
+
+    console.log(`Loaded ${metadataMap.size} metadata entries`);
+
+    //read airdrop.json (wallets with nftId references)
+    console.log("Reading airdrop.json...");
+    const airdropContent = await Deno.readTextFile("airdrop.json");
+    const airdropEntries = JSON.parse(airdropContent) as AirdropEntry[];
+
+    if (!Array.isArray(airdropEntries)) {
+      throw new Error("airdrop.json must contain an array");
+    }
+
+    console.log(`Found ${airdropEntries.length} airdrop entries`);
+
+    // combine metadata with wallet addresses
+    const prepared: AirdropItem[] = [];
+    const missingMetadata: string[] = [];
+
+    for (const entry of airdropEntries) {
+      const metadata = metadataMap.get(entry.nftId);
+
+      if (!metadata) {
+        missingMetadata.push(entry.nftId);
+        console.warn(
+          `Missing metadata for nftId: ${entry.nftId}, skipping entry`
+        );
+        continue;
+      }
+
+      // create unique id for idempotency: walletAddress-nftId
+      const uniqueId = `${entry.walletAddress}-${entry.nftId}`;
+
+      prepared.push({
+        walletAddress: `${CHAIN}:${entry.walletAddress}`,
+        metadata: metadata,
+        id: uniqueId,
+      });
+    }
+
+    if (missingMetadata.length > 0) {
+      console.warn(
+        `Warning: ${missingMetadata.length} entries skipped due to missing metadata`
+      );
+      const uniqueMissing = [...new Set(missingMetadata)];
+      console.warn(`Missing nftIds: ${uniqueMissing.join(", ")}`);
+    }
+
+    console.log(`Prepared ${prepared.length} airdrop items`);
+
+    return prepared;
   } catch (error) {
     if (error instanceof Deno.errors.NotFound) {
-      throw new Error(`File not found: ${filePath}`);
+      throw new Error(`File not found: ${error.message}`);
     }
     if (error instanceof SyntaxError) {
-      throw new Error(`Invalid JSON in file: ${filePath}`);
+      throw new Error(`Invalid JSON: ${error.message}`);
     }
     throw error;
   }
 };
 
 export const mint = async (params: MintParams): Promise<MintResponse> => {
-  const url =
-    `${CROSSMINT_BASE_URL}collections/${COLLECTION_ID}/nfts/${params.id}`;
+  const url = `${CROSSMINT_BASE_URL}collections/${COLLECTION_ID}/nfts/${params.id}`;
 
   const response = await fetch(url, {
     method: "PUT",
@@ -90,9 +157,9 @@ export const mint = async (params: MintParams): Promise<MintResponse> => {
   if (!response.ok) {
     const error = await response.json();
     throw new Error(
-      `Mint failed with status: ${response.status} and error: ${
-        JSON.stringify(error)
-      }`,
+      `Mint failed with status: ${response.status} and error: ${JSON.stringify(
+        error
+      )}`
     );
   }
 
@@ -111,11 +178,11 @@ const loadResults = async (): Promise<Map<string, MintResponse>> => {
 };
 
 const saveResults = async (
-  results: Map<string, MintResponse>,
+  results: Map<string, MintResponse>
 ): Promise<void> => {
   await Deno.writeTextFile(
     "results.json",
-    JSON.stringify(Array.from(results.values()), null, 2),
+    JSON.stringify(Array.from(results.values()), null, 2)
   );
 };
 
@@ -128,7 +195,7 @@ const sleep = (ms: number): Promise<void> => {
 const mintWithRetry = async (
   item: AirdropItem,
   reuploadLinkedFiles: boolean,
-  maxRetries = 3,
+  maxRetries = 3
 ): Promise<MintResponse> => {
   let backoffMs = 1000;
 
@@ -157,7 +224,7 @@ const mintWithRetry = async (
 export const mintBatch = async (
   items: AirdropItem[],
   reuploadLinkedFiles = false,
-  batchSize = 10,
+  batchSize = 10
 ): Promise<void> => {
   const results = await loadResults();
   const processedIds = new Set(results.keys());
@@ -167,7 +234,7 @@ export const mintBatch = async (
   console.log(
     `Processing ${itemsToProcess.length} items (${
       items.length - itemsToProcess.length
-    } already completed)`,
+    } already completed)`
   );
 
   for (let i = 0; i < itemsToProcess.length; i += batchSize) {
