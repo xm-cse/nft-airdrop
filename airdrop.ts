@@ -105,13 +105,13 @@ export const readAirdropData = async (): Promise<AirdropItem[]> => {
       if (!metadata) {
         missingMetadata.push(entry.nftId);
         console.warn(
-          `Missing metadata for nftId: ${entry.nftId}, skipping entry`
+          `Missing metadata for nftId: ${entry.nftId}, skipping entry`,
         );
         continue;
       }
 
       // create unique id for idempotency: walletAddress-nftId
-      const uniqueId = `${entry.walletAddress}-${entry.nftId}`;
+      const uniqueId = `${entry.walletAddress}-${entry.nftId}`.toLowerCase();
 
       prepared.push({
         walletAddress: `${CHAIN}:${entry.walletAddress}`,
@@ -122,7 +122,7 @@ export const readAirdropData = async (): Promise<AirdropItem[]> => {
 
     if (missingMetadata.length > 0) {
       console.warn(
-        `Warning: ${missingMetadata.length} entries skipped due to missing metadata`
+        `Warning: ${missingMetadata.length} entries skipped due to missing metadata`,
       );
       const uniqueMissing = [...new Set(missingMetadata)];
       console.warn(`Missing nftIds: ${uniqueMissing.join(", ")}`);
@@ -143,7 +143,8 @@ export const readAirdropData = async (): Promise<AirdropItem[]> => {
 };
 
 export const mint = async (params: MintParams): Promise<MintResponse> => {
-  const url = `${CROSSMINT_BASE_URL}collections/${COLLECTION_ID}/nfts/${params.id}`;
+  const url =
+    `${CROSSMINT_BASE_URL}collections/${COLLECTION_ID}/nfts/${params.id}`;
 
   const response = await fetch(url, {
     method: "PUT",
@@ -157,9 +158,11 @@ export const mint = async (params: MintParams): Promise<MintResponse> => {
   if (!response.ok) {
     const error = await response.json();
     throw new Error(
-      `Mint failed with status: ${response.status} and error: ${JSON.stringify(
-        error
-      )}`
+      `Mint failed with status: ${response.status} and error: ${
+        JSON.stringify(
+          error,
+        )
+      }`,
     );
   }
 
@@ -178,11 +181,11 @@ const loadResults = async (): Promise<Map<string, MintResponse>> => {
 };
 
 const saveResults = async (
-  results: Map<string, MintResponse>
+  results: Map<string, MintResponse>,
 ): Promise<void> => {
   await Deno.writeTextFile(
     "results.json",
-    JSON.stringify(Array.from(results.values()), null, 2)
+    JSON.stringify(Array.from(results.values()), null, 2),
   );
 };
 
@@ -195,7 +198,7 @@ const sleep = (ms: number): Promise<void> => {
 const mintWithRetry = async (
   item: AirdropItem,
   reuploadLinkedFiles: boolean,
-  maxRetries = 3
+  maxRetries = 3,
 ): Promise<MintResponse> => {
   let backoffMs = 1000;
 
@@ -224,7 +227,7 @@ const mintWithRetry = async (
 export const mintBatch = async (
   items: AirdropItem[],
   reuploadLinkedFiles = false,
-  batchSize = 10
+  batchSize = 10,
 ): Promise<void> => {
   const results = await loadResults();
   const processedIds = new Set(results.keys());
@@ -234,7 +237,7 @@ export const mintBatch = async (
   console.log(
     `Processing ${itemsToProcess.length} items (${
       items.length - itemsToProcess.length
-    } already completed)`
+    } already completed)`,
   );
 
   for (let i = 0; i < itemsToProcess.length; i += batchSize) {
